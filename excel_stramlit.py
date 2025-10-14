@@ -4,7 +4,7 @@ from datetime import datetime
 from io import BytesIO
 
 # --- ตั้งค่าหน้าเว็บ ---
-st.set_page_config(page_title="Cassava Excel Processor", layout="wide")
+st.set_page_config(page_title="ASSAVA-CLEAN: Excel Data Processing App", layout="wide")
 st.title("📊 Cassava Excel Processor (Advanced)")
 st.caption("เวอร์ชันเว็บ: แยกจังหวัด/เดือน และคำนวณผลผลิตอัตโนมัติ")
 
