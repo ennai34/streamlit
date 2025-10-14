@@ -5,8 +5,8 @@ from io import BytesIO
 
 # --- ตั้งค่าหน้าเว็บ ---
 st.set_page_config(page_title="Cassava Excel Processor", layout="wide")
-st.title("📊 Cassava Excel Processor (Simplified Version)")
-st.caption("ประมวลผลไฟล์มันสำปะหลัง: แยกเดือน คำนวณผลผลิตอัตโนมัติ")
+st.title("📊 Cassava Excel Processor (Advanced)")
+st.caption("เวอร์ชันเว็บ: แยกจังหวัด/เดือน และคำนวณผลผลิตอัตโนมัติ")
 
 # --- 1. อัปโหลดไฟล์ Excel ---
 uploaded_file = st.file_uploader("📂 เลือกไฟล์ Excel (.xlsx, .xls)", type=["xlsx", "xls"])
@@ -44,13 +44,17 @@ if uploaded_file:
             except:
                 return False
 
-        # --- แยกเฉพาะแถวที่เป็นเดือน ---
+        # --- สร้างคอลัมน์จังหวัดและเดือน ---
+        df['จังหวัด'] = df['พื้นที่'].apply(lambda x: None if is_date(x) else x)
         df['เดือน'] = df['พื้นที่'].apply(lambda x: x if is_date(x) else None)
 
-        # ลบแถวที่ไม่มีเดือน
-        df = df.dropna(subset=['เดือน'])
+        # เติมชื่อจังหวัดในแถวเดือน
+        df['จังหวัด'] = df['จังหวัด'].fillna(method='ffill')
 
-        # ลบคอลัมน์ 'พื้นที่'
+        # ลบแถวที่ไม่มีเดือน
+        df = df.dropna(subset=['เดือน'], how='all')
+
+        # ลบคอลัมน์พื้นที่
         df.drop(columns=['พื้นที่'], inplace=True)
 
         # --- เพิ่มคอลัมน์ผลผลิต ---
@@ -59,6 +63,10 @@ if uploaded_file:
             df['ผลผลิต_ตัน'] = df['ผลผลิต_กิโลกรัม'] / 1000
         else:
             st.warning("⚠️ ไม่พบคอลัมน์ 'ผลผลิต' ในไฟล์ Excel")
+
+        # --- จัดเรียงคอลัมน์ให้จังหวัดอยู่ด้านหน้า ---
+        cols = ['จังหวัด', 'เดือน'] + [col for col in df.columns if col not in ['จังหวัด', 'เดือน']]
+        df = df[cols]
 
         # --- แสดงผลลัพธ์ ---
         st.subheader("📈 ตารางข้อมูลหลังประมวลผล")
