@@ -1,86 +1,104 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 from io import BytesIO
 
-# --- ตั้งค่าหน้าเว็บ ---
-st.set_page_config(page_title="CASSAVA-CLEAN: Excel Data Processing App", layout="wide")
-st.title("CASSAVA-CLEAN: Excel Data Processing App")
-st.caption("เวอร์ชันเว็บ: แยกจังหวัด/เดือน และคำนวณผลผลิตอัตโนมัติ")
+st.set_page_config(page_title="Excel Cleaner", layout="wide")
+st.title("📊 Excel Data Cleaner (แยกจังหวัด + วันที่)")
 
-# --- 1. อัปโหลดไฟล์ Excel ---
-uploaded_file = st.file_uploader("📂 เลือกไฟล์ Excel (.xlsx, .xls)", type=["xlsx", "xls"])
+# =========================
+# Upload file
+# =========================
+uploaded_file = st.file_uploader("📂 อัปโหลดไฟล์ Excel", type=["xlsx"])
 
 if uploaded_file:
-    try:
-        xls = pd.ExcelFile(uploaded_file, engine="openpyxl")
-        sheet_names = xls.sheet_names
-        sheet_name = st.selectbox("📑 เลือก Sheet ที่ต้องการประมวลผล", sheet_names)
-    except Exception as e:
-        st.error(f"❌ อ่านไฟล์ Excel ไม่สำเร็จ: {e}")
-        st.stop()
 
-    # --- ระบุจำนวนแถวที่ต้องข้าม ---
-    skip_rows = st.number_input("🔢 จำนวนแถวที่ต้องข้ามจากด้านบน", min_value=0, value=5, step=1)
+    # =========================
+    # อ่านไฟล์
+    # =========================
+    df = pd.read_excel(uploaded_file, skiprows=5)
+    df.columns = df.columns.astype(str).str.strip()
 
-    # --- ปุ่มเริ่มประมวลผล ---
-    if st.button("🚀 เริ่มประมวลผล", use_container_width=True):
-        try:
-            df = pd.read_excel(uploaded_file, sheet_name=sheet_name, skiprows=skip_rows, engine="openpyxl")
-        except Exception as e:
-            st.error(f"❌ เกิดข้อผิดพลาดในการอ่าน Sheet: {e}")
-            st.stop()
+    st.success("✅ โหลดไฟล์สำเร็จ")
+    st.write("🔍 ตัวอย่างข้อมูล")
+    st.dataframe(df.head())
 
-        # --- เปลี่ยนชื่อคอลัมน์แรกเป็น 'พื้นที่' ---
-        df.rename(columns={df.columns[0]: 'พื้นที่'}, inplace=True)
+    # =========================
+    # หา column พื้นที่
+    # =========================
+    area_col = None
+    for col in df.columns:
+        if "พื้นที่" in col:
+            area_col = col
+            break
 
-        # --- ฟังก์ชันตรวจสอบว่าเป็นวันที่หรือไม่ ---
-        def is_date(value):
-            if isinstance(value, datetime):
-                return True
+    if area_col is None:
+        st.error("❌ ไม่พบคอลัมน์ 'พื้นที่'")
+    else:
+        st.info(f"📌 ใช้คอลัมน์: {area_col}")
+
+        # =========================
+        # เตรียมตัวแปร
+        # =========================
+        current_province = None
+        current_month = None
+        rows = []
+
+        # =========================
+        # loop
+        # =========================
+        for _, row in df.iterrows():
+            text = str(row[area_col]).strip() if pd.notna(row[area_col]) else ""
+
+            if text == "" or "รวม" in text:
+                continue
+
+            # ===== เดือน =====
             try:
-                pd.to_datetime(value)
-                return True
+                dt = pd.to_datetime(text)
+                current_month = dt
+                continue
             except:
-                return False
+                pass
 
-        # --- สร้างคอลัมน์จังหวัดและเดือน ---
-        df['จังหวัด'] = df['พื้นที่'].apply(lambda x: None if is_date(x) else x)
-        df['เดือน'] = df['พื้นที่'].apply(lambda x: x if is_date(x) else None)
+            # ===== จังหวัด =====
+            if not any(char.isdigit() for char in text):
+                current_province = text
+                continue
 
-        # เติมชื่อจังหวัดในแถวเดือน
-        df['จังหวัด'] = df['จังหวัด'].fillna(method='ffill')
+            # ===== ข้อมูล =====
+            new_row = row.copy()
+            new_row["จังหวัด"] = current_province
+            new_row["วันที่"] = current_month
 
-        # ลบแถวที่ไม่มีเดือน
-        df = df.dropna(subset=['เดือน'], how='all')
+            rows.append(new_row)
 
-        # ลบคอลัมน์พื้นที่
-        df.drop(columns=['พื้นที่'], inplace=True)
+        # =========================
+        # รวม dataframe
+        # =========================
+        df_new = pd.DataFrame(rows)
+        df_new = df_new.dropna(how="all")
 
-        # --- เพิ่มคอลัมน์ผลผลิต ---
-        if 'ผลผลิต' in df.columns:
-            df['ผลผลิต_กิโลกรัม'] = pd.to_numeric(df['ผลผลิต'], errors='coerce')
-            df['ผลผลิต_ตัน'] = df['ผลผลิต_กิโลกรัม'] / 1000
-        else:
-            st.warning("⚠️ ไม่พบคอลัมน์ 'ผลผลิต' ในไฟล์ Excel")
+        # =========================
+        # จัดคอลัมน์
+        # =========================
+        cols = ["จังหวัด", "วันที่"] + [c for c in df_new.columns if c not in ["จังหวัด", "วันที่"]]
+        df_new = df_new[cols]
 
-        # --- จัดเรียงคอลัมน์ให้จังหวัดอยู่ด้านหน้า ---
-        cols = ['จังหวัด', 'เดือน'] + [col for col in df.columns if col not in ['จังหวัด', 'เดือน']]
-        df = df[cols]
+        df_new = df_new.reset_index(drop=True)
 
-        # --- แสดงผลลัพธ์ ---
-        st.subheader("📈 ตารางข้อมูลหลังประมวลผล")
-        st.dataframe(df, use_container_width=True)
+        st.success("✅ ประมวลผลเสร็จแล้ว")
+        st.dataframe(df_new.head())
 
-        # --- ดาวน์โหลดไฟล์ Excel ---
+        # =========================
+        # download
+        # =========================
         output = BytesIO()
-        df.to_excel(output, index=False, engine='openpyxl')
+        df_new.to_excel(output, index=False)
         output.seek(0)
 
         st.download_button(
-            label="💾 ดาวน์โหลดไฟล์ผลลัพธ์",
+            label="📥 ดาวน์โหลดไฟล์ Excel",
             data=output,
-            file_name=f"cassava_processed_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            file_name="output_cleaned.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
