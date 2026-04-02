@@ -5,9 +5,6 @@ from io import BytesIO
 st.set_page_config(page_title="Excel Cleaner", layout="wide")
 st.title("📊 Excel Data Cleaner (แยกจังหวัด + วันที่)")
 
-# =========================
-# Upload file
-# =========================
 uploaded_file = st.file_uploader("📂 อัปโหลดไฟล์ Excel", type=["xlsx"])
 
 if uploaded_file:
@@ -18,8 +15,7 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file, skiprows=5)
     df.columns = df.columns.astype(str).str.strip()
 
-    st.success("✅ โหลดไฟล์สำเร็จ")
-    st.write("🔍 ตัวอย่างข้อมูล")
+    st.write("📌 Columns:", df.columns.tolist())
     st.dataframe(df.head())
 
     # =========================
@@ -33,72 +29,89 @@ if uploaded_file:
 
     if area_col is None:
         st.error("❌ ไม่พบคอลัมน์ 'พื้นที่'")
-    else:
-        st.info(f"📌 ใช้คอลัมน์: {area_col}")
+        st.stop()
 
-        # =========================
-        # เตรียมตัวแปร
-        # =========================
-        current_province = None
-        current_month = None
-        rows = []
+    st.success(f"✅ ใช้คอลัมน์: {area_col}")
 
-        # =========================
-        # loop
-        # =========================
-        for _, row in df.iterrows():
-            text = str(row[area_col]).strip() if pd.notna(row[area_col]) else ""
+    # =========================
+    # เตรียมตัวแปร
+    # =========================
+    current_province = None
+    current_month = None
+    rows = []
 
-            if text == "" or "รวม" in text:
-                continue
+    # =========================
+    # loop
+    # =========================
+    for _, row in df.iterrows():
+        text = str(row[area_col]).strip() if pd.notna(row[area_col]) else ""
 
-            # ===== เดือน =====
-            try:
-                dt = pd.to_datetime(text)
-                current_month = dt
-                continue
-            except:
-                pass
+        if text == "" or "รวม" in text:
+            continue
 
-            # ===== จังหวัด =====
-            if not any(char.isdigit() for char in text):
-                current_province = text
-                continue
+        # ===== เดือน =====
+        dt = pd.to_datetime(text, errors='coerce')
+        if pd.notna(dt):
+            current_month = dt
+            continue
 
-            # ===== ข้อมูล =====
-            new_row = row.copy()
-            new_row["จังหวัด"] = current_province
-            new_row["วันที่"] = current_month
+        # ===== จังหวัด =====
+        if not any(char.isdigit() for char in text):
+            current_province = text
+            continue
 
-            rows.append(new_row)
+        # ===== แถวข้อมูล =====
+        if current_province is None or current_month is None:
+            continue  # กันข้อมูลไม่ครบ
 
-        # =========================
-        # รวม dataframe
-        # =========================
-        df_new = pd.DataFrame(rows)
-        df_new = df_new.dropna(how="all")
+        new_row = row.copy()
+        new_row["จังหวัด"] = current_province
+        new_row["วันที่"] = current_month
 
-        # =========================
-        # จัดคอลัมน์
-        # =========================
-        cols = ["จังหวัด", "วันที่"] + [c for c in df_new.columns if c not in ["จังหวัด", "วันที่"]]
-        df_new = df_new[cols]
+        rows.append(new_row)
 
-        df_new = df_new.reset_index(drop=True)
+    # =========================
+    # ตรวจ rows
+    # =========================
+    st.write("📊 จำนวน rows ที่ได้:", len(rows))
 
-        st.success("✅ ประมวลผลเสร็จแล้ว")
-        st.dataframe(df_new.head())
+    if len(rows) == 0:
+        st.error("❌ ไม่มีข้อมูลหลังประมวลผล")
+        st.stop()
 
-        # =========================
-        # download
-        # =========================
-        output = BytesIO()
-        df_new.to_excel(output, index=False)
-        output.seek(0)
+    # =========================
+    # รวม dataframe
+    # =========================
+    df_new = pd.DataFrame(rows)
+    df_new = df_new.dropna(how="all")
 
-        st.download_button(
-            label="📥 ดาวน์โหลดไฟล์ Excel",
-            data=output,
-            file_name="output_cleaned.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.write("📌 df_new columns:", df_new.columns.tolist())
+
+    # =========================
+    # จัดคอลัมน์ (กัน KeyError)
+    # =========================
+    expected_cols = ["จังหวัด", "วันที่"]
+
+    cols = [c for c in expected_cols if c in df_new.columns] + \
+           [c for c in df_new.columns if c not in expected_cols]
+
+    df_new = df_new[cols]
+
+    df_new = df_new.reset_index(drop=True)
+
+    st.success("✅ ประมวลผลเสร็จแล้ว")
+    st.dataframe(df_new.head())
+
+    # =========================
+    # download
+    # =========================
+    output = BytesIO()
+    df_new.to_excel(output, index=False)
+    output.seek(0)
+
+    st.download_button(
+        label="📥 ดาวน์โหลดไฟล์ Excel",
+        data=output,
+        file_name="output_cleaned.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
